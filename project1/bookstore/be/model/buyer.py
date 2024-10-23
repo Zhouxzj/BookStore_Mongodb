@@ -5,7 +5,6 @@ import logging
 from be.model import db_conn
 from be.model import error
 
-
 class Buyer(db_conn.DBConn):
     def __init__(self):
         db_conn.DBConn.__init__(self)
@@ -19,8 +18,9 @@ class Buyer(db_conn.DBConn):
                 return error.error_non_exist_user_id(user_id) + (order_id,)
             if not self.store_id_exist(store_id):
                 return error.error_non_exist_store_id(store_id) + (order_id,)
+            #生成订单号
             uid = "{}_{}_{}".format(user_id, store_id, str(uuid.uuid1()))
-
+            #遍历书籍，检查库存并更新库存
             for book_id, count in id_and_count:
                 cursor = self.conn.execute(
                     "SELECT book_id, stock_level, book_info FROM store "
@@ -35,10 +35,10 @@ class Buyer(db_conn.DBConn):
                 book_info = row[2]
                 book_info_json = json.loads(book_info)
                 price = book_info_json.get("price")
-
+                #检查库存是否充足
                 if stock_level < count:
                     return error.error_stock_level_low(book_id) + (order_id,)
-
+                #更新库存
                 cursor = self.conn.execute(
                     "UPDATE store set stock_level = stock_level - ? "
                     "WHERE store_id = ? and book_id = ? and stock_level >= ?; ",
@@ -46,13 +46,13 @@ class Buyer(db_conn.DBConn):
                 )
                 if cursor.rowcount == 0:
                     return error.error_stock_level_low(book_id) + (order_id,)
-
+                #插入订单详情
                 self.conn.execute(
                     "INSERT INTO new_order_detail(order_id, book_id, count, price) "
                     "VALUES(?, ?, ?, ?);",
                     (uid, book_id, count, price),
                 )
-
+            #插入订单信息
             self.conn.execute(
                 "INSERT INTO new_order(order_id, store_id, user_id) "
                 "VALUES(?, ?, ?);",
@@ -68,7 +68,7 @@ class Buyer(db_conn.DBConn):
             return 530, "{}".format(str(e)), ""
 
         return 200, "ok", order_id
-
+    #买家付款接口实现
     def payment(self, user_id: str, password: str, order_id: str) -> (int, str):
         conn = self.conn
         try:
