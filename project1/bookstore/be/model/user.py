@@ -6,15 +6,6 @@ import sqlite3 as sqlite
 from be.model import error
 from be.model import db_conn
 
-# JWT 生成
-def jwt_encode(user_id: str, terminal: str) -> str:
-    encoded = jwt.encode(
-        {"user_id": user_id, "terminal": terminal, "timestamp": time.time()},
-        key=user_id,
-        algorithm="HS256",
-    )
-    return encoded.decode("utf-8")
-
 # JWT 解码
 def jwt_decode(encoded_token, user_id: str) -> str:
     decoded = jwt.decode(encoded_token, key=user_id, algorithms="HS256")
@@ -155,3 +146,39 @@ class User(db_conn.DBConn):
         except sqlite.Error as e:
             return 528, f"SQLite Error: {str(e)}"
         return 200, "ok"
+
+    def confirm_receipt(self, user_id, order_id, store_id):
+        # 查找用户并检查是否存在
+        user = self.users_collection.find_one({"user_id": user_id})
+        if not user:
+            return error.error_non_exist_user_id(user_id)
+
+        # 查找用户的订单并确认状态是否为 "delivered"
+        order_found = False
+        for order in user.get("orders", []):
+            if order["order_id"] == order_id and order["store_id"] == store_id:
+                if order["state"] == "delivered":
+                    # 更新用户订单状态为 "received"
+                    self.users_collection.update_one(
+                        {"user_id": user_id, "orders.order_id": order_id},
+                        {"$set": {"orders.$.state": "received"}}
+                    )
+                    order_found = True
+                    break
+                else:
+                    return error.error_invalid_order_state(order_id, order["state"])
+
+        if not order_found:
+            return error.error_invalid_order_id(order_id)
+
+        # 同步更新商店订单状态为 "received"
+        shop = self.shops_collection.find_one({"store_id": store_id})
+        if shop:
+            self.shops_collection.update_one(
+                {"store_id": store_id, "orders.order_id": order_id},
+                {"$set": {"orders.$.state": "received"}}
+            )
+        else:
+            return error.error_non_exist_store_id(store_id)
+
+        return {"success": "Order confirmed as received"}

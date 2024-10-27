@@ -53,6 +53,8 @@ def error_invalid_order_id(order_id):
 def error_not_sufficient_funds(order_id):
     return 519, error_code[519].format(order_id)
 
+def error_invalid_order_state(order_id, state):
+    return 518, f"Order with ID '{order_id}' is in an invalid state: '{state}'."
 
 # 授权相关错误
 def error_authorization_fail():
@@ -61,3 +63,4 @@ def error_authorization_fail():
 # 通用错误处理
 def error_and_message(code, message):
     return code, message
+

@@ -89,3 +89,41 @@ def change_password():
         user_id=user_id, old_password=old_password, new_password=new_password
     )
     return jsonify({"message": message}), code
+
+
+def dispatch_order(self, store_id, order_id):
+    # 查找商店并检查是否存在
+    shop = self.shops_collection.find_one({"store_id": store_id})
+    if not shop:
+        return error.error_non_exist_store_id(store_id)
+
+    # 查找商店的订单并确认状态是否为 "paid"
+    order_found = False
+    for order in shop.get("orders", []):
+        if order["order_id"] == order_id:
+            if order["state"] == "paid":
+                # 更新商店订单状态为 "delivered"
+                self.shops_collection.update_one(
+                    {"store_id": store_id, "orders.order_id": order_id},
+                    {"$set": {"orders.$.state": "delivered"}}
+                )
+                order_found = True
+                break
+            else:
+                return error.error_invalid_order_state(order_id, order["state"])
+
+    if not order_found:
+        return error.error_invalid_order_id(order_id)
+
+    # 同步更新用户订单状态为 "delivered"
+    user_id = order["user_id"]
+    user = self.users_collection.find_one({"user_id": user_id})
+    if user:
+        self.users_collection.update_one(
+            {"user_id": user_id, "orders.order_id": order_id},
+            {"$set": {"orders.$.state": "delivered"}}
+        )
+    else:
+        return error.error_non_exist_user_id(user_id)
+
+    return {"success": "Order dispatched"}

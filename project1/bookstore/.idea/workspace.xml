@@ -4,14 +4,29 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d12fb992-e7bc-4128-a53e-a415fb8b05f9" name="Changes" comment="" />
+    <list default="true" id="d12fb992-e7bc-4128-a53e-a415fb8b05f9" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/be/model/user.py" beforeDir="false" afterPath="$PROJECT_DIR$/be/model/user.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/be/view/auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/be/view/auth.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/../.." />
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/be/model/user.py" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/be/view/auth.py" root0="FORCE_HIGHLIGHTING" />
   </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 5
@@ -21,21 +36,26 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python tests.pytest in test_buyer.py.executor": "Run",
-    "Python.buyer.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "last_opened_file_path": "/Users/cynthia/10225501452/CDMS.Xuan_ZHOU.2024Fall.DaSE/project1/bookstore/test"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python tests.pytest in test_auth.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.pytest in test_buyer.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.pytest in test_seller.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python.buyer.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;scy&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/cynthia/10225501452/CDMS.Xuan_ZHOU.2024Fall.DaSE/project1/bookstore/be/view&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/be/view" />
+      <recent name="$PROJECT_DIR$/be/model" />
       <recent name="$PROJECT_DIR$/test" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
-      <recent name="$PROJECT_DIR$/be/view" />
       <recent name="$PROJECT_DIR$/be/model" />
+      <recent name="$PROJECT_DIR$/be/view" />
     </key>
   </component>
   <component name="SharedIndexes">
