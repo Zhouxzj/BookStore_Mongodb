@@ -1,14 +1,19 @@
-import sqlite3 as sqlite
+from pymongo import MongoClient, errors
 import uuid
 import json
 import logging
+from datetime import datetime
 from be.model import db_conn
 from be.model import error
+import traceback
 
 
 class Buyer(db_conn.DBConn):
     def __init__(self):
-        db_conn.DBConn.__init__(self)
+        super().__init__()
+        self.store_col = self.get_store_col()
+        self.user_col = self.get_user_col()
+        self.book_col = self.get_book_col()
 
     def new_order(
         self, user_id: str, store_id: str, id_and_count: [(str, int)]
@@ -22,166 +27,248 @@ class Buyer(db_conn.DBConn):
             uid = "{}_{}_{}".format(user_id, store_id, str(uuid.uuid1()))
 
             for book_id, count in id_and_count:
-                cursor = self.conn.execute(
-                    "SELECT book_id, stock_level, book_info FROM store "
-                    "WHERE store_id = ? AND book_id = ?;",
-                    (store_id, book_id),
-                )
-                row = cursor.fetchone()
-                if row is None:
+                store_data = list(self.store_col.find(
+                    {"store_id": store_id, "books": {"$elemMatch": {"book_id": book_id}}},
+                    {"books.$": 1}
+                ))
+                if not store_data or not store_data[0].get("books"):
                     return error.error_non_exist_book_id(book_id) + (order_id,)
 
-                stock_level = row[1]
-                book_info = row[2]
-                book_info_json = json.loads(book_info)
-                price = book_info_json.get("price")
+                book_data  = store_data[0]["books"][0]
+                stock_level = book_data.get("num", 0)
 
                 if stock_level < count:
                     return error.error_stock_level_low(book_id) + (order_id,)
 
-                cursor = self.conn.execute(
-                    "UPDATE store set stock_level = stock_level - ? "
-                    "WHERE store_id = ? and book_id = ? and stock_level >= ?; ",
-                    (count, store_id, book_id, count),
+                self.store_col.update_one(
+                    {"store_id": store_id, "books.book_id": book_id},
+                    {"$inc": {"books.$.num": -count}}
                 )
-                if cursor.rowcount == 0:
+
+                updated_store_data = self.store_col.find_one(
+                    {"store_id": store_id, "books.book_id": book_id},
+                    {"books.$": 1}
+                )
+
+                if not updated_store_data or updated_store_data['books'][0]['num'] < 0:
                     return error.error_stock_level_low(book_id) + (order_id,)
 
-                self.conn.execute(
-                    "INSERT INTO new_order_detail(order_id, book_id, count, price) "
-                    "VALUES(?, ?, ?, ?);",
-                    (uid, book_id, count, price),
+                price_data = self.book_col.find_one(
+                    {"book_id": book_id},
+                    {"price": 1, "_id": 0}
+                )
+                price = price_data['price'] if price_data else 0
+                user = self.user_col.find_one({"user_id": user_id})
+                if user is None:
+                    return error.error_non_exist_user_id(user_id) + (order_id,)
+                address = user.get("address", "")
+                order_data_u = {
+                    "order_id": uid,
+                    "store_id": store_id,
+                    "book_id": book_id,
+                    "num": count,
+                    "state": "ordered",
+                    "address": address,
+                }
+                self.user_col.update_one(
+                    {"user_id": user_id},
+                    {"$push": {"order": order_data_u}}
                 )
 
-            self.conn.execute(
-                "INSERT INTO new_order(order_id, store_id, user_id) "
-                "VALUES(?, ?, ?);",
-                (uid, store_id, user_id),
-            )
-            self.conn.commit()
+                order_time = datetime.now().isoformat()
+                order_data_s = {
+                    "order_id": uid,
+                    "user_id": user_id,
+                    "book_id": book_id,
+                    "count": count,
+                    "address": address,
+                    "state": "ordered",
+                    "order_time": order_time
+                }
+                self.store_col.update_one(
+                    {"store_id": store_id},
+                    {"$push": {"order": order_data_s}}
+                )
             order_id = uid
-        except sqlite.Error as e:
-            logging.info("528, {}".format(str(e)))
+
+        except errors.PyMongoError as e:
+            print("Error Type:", type(e))
+            print("Traceback:", traceback.format_exc())
             return 528, "{}".format(str(e)), ""
         except BaseException as e:
             logging.info("530, {}".format(str(e)))
+            print("Error Type:", type(e))
+            print("Traceback:", traceback.format_exc())
             return 530, "{}".format(str(e)), ""
-
         return 200, "ok", order_id
 
     def payment(self, user_id: str, password: str, order_id: str) -> (int, str):
-        conn = self.conn
         try:
-            cursor = conn.execute(
-                "SELECT order_id, user_id, store_id FROM new_order WHERE order_id = ?",
-                (order_id,),
+            order_info = self.store_col.find_one(
+                {"order.order_id": order_id},
+                {"order": {"$elemMatch":{"order_id": order_id}}}
             )
-            row = cursor.fetchone()
-            if row is None:
+            buyer = order_info["order"][0]["user_id"]
+            if buyer != user_id:
+                return  error.error_authorization_fail()
+
+            user = self.user_col.find_one({"user_id": user_id})
+            if user is None:
+                return error.error_non_exist_user_id(user_id)
+            if password != user.get("passwd"):
+                return error.error_authorization_fail()
+
+            order_buyer = self.user_col.find_one({"user_id": user_id, "order.order_id": order_id})
+            if order_buyer is None:
                 return error.error_invalid_order_id(order_id)
 
-            order_id = row[0]
-            buyer_id = row[1]
-            store_id = row[2]
+            store_data = self.user_col.aggregate([
+                {"$unwind": "$order"},
+                {"$match": {"order.order_id": order_id}},
+                {"$project": {"store_id": 1}}
+            ])
 
-            if buyer_id != user_id:
-                return error.error_authorization_fail()
-
-            cursor = conn.execute(
-                "SELECT balance, password FROM user WHERE user_id = ?;", (buyer_id,)
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return error.error_non_exist_user_id(buyer_id)
-            balance = row[0]
-            if password != row[1]:
-                return error.error_authorization_fail()
-
-            cursor = conn.execute(
-                "SELECT store_id, user_id FROM user_store WHERE store_id = ?;",
-                (store_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
+            if not store_data:
+                return error.error_invalid_order_id(order_id)
+            print("3")
+            store_id = store_data[0]["store_id"]
+            store = self.store_col.find_one({"store_id": store_id})
+            if store is None:
                 return error.error_non_exist_store_id(store_id)
 
-            seller_id = row[1]
+            seller_id = store["user_id"]
 
             if not self.user_id_exist(seller_id):
                 return error.error_non_exist_user_id(seller_id)
 
-            cursor = conn.execute(
-                "SELECT book_id, count, price FROM new_order_detail WHERE order_id = ?;",
-                (order_id,),
-            )
-            total_price = 0
-            for row in cursor:
-                count = row[1]
-                price = row[2]
-                total_price = total_price + price * count
+            order_book_info = list(self.user_col.aggregate([
+                {"$unwind": "$order"},
+                {"$match": {"order.order_id": order_id}},
+                {"$project": {"num": "$order.num", "book_id": "$order.book_id"}}
+            ]))
 
-            if balance < total_price:
+            if not order_book_info:
+                return error.error_invalid_order_id(order_id)
+            order_num = order_book_info[0]["num"]
+            order_book_id = order_book_info[0]["book_id"]
+
+            price_data = self.book_col.find_one({"book_id": order_book_id}, {"price": 1, "_id": 0})
+            if price_data is None:
+                return  error.error_non_exist_book_id(order_book_id)
+
+            price = price_data["price"]
+            total_price = int(price) * int(order_num)
+
+            if user["account"] < total_price:
                 return error.error_not_sufficient_funds(order_id)
 
-            cursor = conn.execute(
-                "UPDATE user set balance = balance - ?"
-                "WHERE user_id = ? AND balance >= ?",
-                (total_price, buyer_id, total_price),
+            self.user_col.update_one(
+                {"user_id": user_id},
+                {"$inc": {"account": -total_price}}
             )
-            if cursor.rowcount == 0:
-                return error.error_not_sufficient_funds(order_id)
-
-            cursor = conn.execute(
-                "UPDATE user set balance = balance + ?" "WHERE user_id = ?",
-                (total_price, seller_id),
+            self.user_col.update_one(
+                {"user_id": user_id,"order.order_id": order_id},
+                {"$set": {"order.$.state": "paid"}}
+            )
+            self.user_col.update_one(
+                {"user_id": seller_id},
+                {"$inc": {"account": total_price}}
+            )
+            self.store_col.update_one(
+                {"user_id": seller_id, "order.order_id": order_id},
+                {"$set": {"order.$.state": "paid"}}
             )
 
-            if cursor.rowcount == 0:
-                return error.error_non_exist_user_id(seller_id)
-
-            cursor = conn.execute(
-                "DELETE FROM new_order WHERE order_id = ?", (order_id,)
-            )
-            if cursor.rowcount == 0:
-                return error.error_invalid_order_id(order_id)
-
-            cursor = conn.execute(
-                "DELETE FROM new_order_detail where order_id = ?", (order_id,)
-            )
-            if cursor.rowcount == 0:
-                return error.error_invalid_order_id(order_id)
-
-            conn.commit()
-
-        except sqlite.Error as e:
+        except errors.PyMongoError as e:
+            print("Error Type:", type(e))
+            print("Traceback:", traceback.format_exc())
             return 528, "{}".format(str(e))
-
         except BaseException as e:
+            print("Error Type:", type(e))
+            print("Traceback:", traceback.format_exc())
             return 530, "{}".format(str(e))
 
         return 200, "ok"
 
     def add_funds(self, user_id, password, add_value) -> (int, str):
         try:
-            cursor = self.conn.execute(
-                "SELECT password  from user where user_id=?", (user_id,)
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return error.error_authorization_fail()
-
-            if row[0] != password:
-                return error.error_authorization_fail()
-
-            cursor = self.conn.execute(
-                "UPDATE user SET balance = balance + ? WHERE user_id = ?",
-                (add_value, user_id),
-            )
-            if cursor.rowcount == 0:
+            user = self.user_col.find_one({"user_id": user_id})
+            if user is None:
                 return error.error_non_exist_user_id(user_id)
 
-            self.conn.commit()
-        except sqlite.Error as e:
+            if password != user.get("passwd"):
+                return error.error_authorization_fail(user_id)
+
+            self.user_col.update_one(
+                {"user_id": user_id},
+                {"$inc": {"account": add_value}}
+            )
+        except errors.PyMongoError as e:
+            return 528, "{}".format(str(e))
+        except BaseException as e:
+            return 530, "{}".format(str(e))
+
+        return 200, "ok"
+
+    # 新增的搜索功能代码
+    def search_books(self, keyword, store_id=None, page=1, per_page=10):
+        """
+        搜索书籍，支持分页查询
+        :param keyword: 搜索关键字
+        :param store_id: 可选的商店ID，如果提供则限制在该商店内搜索
+        :param page: 当前页码
+        :param per_page: 每页显示的书籍数量
+        :return: 包含结果列表和分页信息的字典
+        """
+        query = {"$text": {"$search": keyword}}  # 使用全文索引进行关键字搜索
+
+        if store_id:
+            query["store_id"] = store_id  # 如果提供 store_id，则只搜索该商店的书籍
+
+        # 查询并进行分页
+        cursor = self.book_col.find(query).skip((page - 1) * per_page).limit(per_page)
+        total_count = self.book_col.count_documents(query)  # 计算总匹配书籍数量
+
+        results = list(cursor)
+
+        if total_count == 0:
+            return error.error_no_books_found(keyword)  # 返回错误信息
+
+        # 返回搜索结果和分页信息
+        return {
+            "results": [{"book_id": book.get("book_id"), "title": book.get("title"), "author": book.get("author")} for
+                        book in results],
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total_count + per_page - 1) // per_page  # 计算总页数
+        }
+
+    def receive(self, user_id: str, password: str, order_id: str) -> (int, str):
+        try:
+            # 查找用户并验证
+            user = self.user_col.find_one({"user_id": user_id})
+            if user is None:
+                return error.error_non_exist_user_id(user_id)
+
+            if user.get("passwd") != password:
+                return error.error_authorization_fail()
+
+            # 检查订单是否存在于用户的订单列表中
+            order_data = self.user_col.find_one(
+                {"user_id": user_id, "order.order_id": order_id},
+                {"order.$": 1}
+            )
+            if not order_data or not order_data.get("order"):
+                return error.error_invalid_order_id(order_id)
+
+            # 更新订单状态为 "received"
+            self.user_col.update_one(
+                {"user_id": user_id, "order.order_id": order_id},
+                {"$set": {"order.$.state": "received"}}
+            )
+
+        except errors.PyMongoError as e:
             return 528, "{}".format(str(e))
         except BaseException as e:
             return 530, "{}".format(str(e))

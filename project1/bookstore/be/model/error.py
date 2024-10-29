@@ -12,6 +12,7 @@ error_code = {
     520: "invalid password for user id {}",  # 新增密码错误
     521: "invalid login attempt, user id or password incorrect",  # 新增登录错误
     528: "SQLite Error: {}",
+    550: "No books found for the keyword '{}'", # 新增的错误代码
 }
 
 # 用户相关错误
@@ -45,6 +46,8 @@ def error_exist_book_id(book_id):
 def error_stock_level_low(book_id):
     return 517, error_code[517].format(book_id)
 
+def error_no_books_found(keyword):
+    return 550, error_code[550].format(keyword)
 
 # 订单相关错误
 def error_invalid_order_id(order_id):
